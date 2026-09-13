@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Warden's Sentencing Tool</title>
+<style>
+  :root{
+    --bg-deep:#1c1d21;
+    --panel:#26272c;
+    --panel-raised:#2e3036;
+    --line:#3a3c44;
+    --sec-red:#b8323c;
+    --sec-red-bright:#e14b55;
+    --sec-magenta:#d9366b;
+    --gold:#d8a53a;
+    --text:#d9dade;
+    --text-dim:#8b8e96;
+    --green:#4caf6d;
+    --blue:#4d8fd1;
+    --mono:"Consolas","Cascadia Mono","IBM Plex Mono","Menlo",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg-deep);color:var(--text);font-family:var(--mono);font-size:14px;line-height:1.45}
+  body{padding:14px;min-height:100vh}
+
+  /* console-styled scrollbars */
+  html{scrollbar-color:var(--sec-red) var(--panel);scrollbar-width:thin}
+  ::-webkit-scrollbar{width:11px;height:11px}
+  ::-webkit-scrollbar-track{background:var(--panel);border-left:1px solid var(--line)}
+  ::-webkit-scrollbar-thumb{background:var(--sec-red);border:2px solid var(--panel)}
+  ::-webkit-scrollbar-thumb:hover{background:var(--sec-red-bright)}
+  ::-webkit-scrollbar-corner{background:var(--panel)}
+  .db-list{scrollbar-color:var(--sec-red) var(--panel-raised);scrollbar-width:thin}
+  .db-list::-webkit-scrollbar-track{background:var(--panel-raised)}
+  .db-list::-webkit-scrollbar-thumb{border-color:var(--panel-raised)}
+
+  /* faint scanline texture over everything */
+  body::after{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:99;
+    background:repeating-linear-gradient(0deg,rgba(255,255,255,.015) 0 1px,transparent 1px 3px);
+  }
+
+  header{
+    border:1px solid var(--sec-red);
+    background:linear-gradient(180deg,#2b2024,#26272c);
+    padding:10px 14px;margin-bottom:12px;
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+  }
+  .brand{display:flex;align-items:center;gap:12px}
+  h1{font-size:17px;letter-spacing:2px;color:var(--sec-red-bright);font-weight:700}
+  .sub{color:var(--text-dim);font-size:11px;letter-spacing:1px}
+
+  .alert-select{display:flex;gap:6px;align-items:center}
+  .alert-select span{color:var(--text-dim);font-size:11px;margin-right:2px}
+  .alert-btn{
+    font-family:var(--mono);font-size:12px;letter-spacing:1px;cursor:pointer;
+    background:var(--panel);color:var(--text-dim);
+    border:1px solid var(--line);padding:5px 12px;
+  }
+  .alert-btn:hover{color:var(--text)}
+  .alert-btn.active[data-alert="green"]{border-color:var(--green);color:var(--green);background:#20291f}
+  .alert-btn.active[data-alert="blue"]{border-color:var(--blue);color:var(--blue);background:#1e242e}
+  .alert-btn.active[data-alert="red"]{border-color:var(--sec-red-bright);color:var(--sec-red-bright);background:#2e1d1f}
+
+  .layout{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:12px}
+  @media (max-width:900px){.layout{grid-template-columns:1fr}}
+
+  .panel{background:var(--panel);border:1px solid var(--line)}
+  .panel-head{
+    padding:7px 12px;border-bottom:1px solid var(--line);
+    background:var(--panel-raised);
+    font-size:12px;letter-spacing:1.5px;color:var(--gold);
+    display:flex;justify-content:space-between;align-items:center;
+  }
+
+  /* ---------- crime database ---------- */
+  .db-search{padding:10px 12px;border-bottom:1px solid var(--line)}
+  .db-search input{
+    width:100%;background:var(--bg-deep);border:1px solid var(--line);
+    color:var(--text);font-family:var(--mono);font-size:13px;padding:7px 10px;
+  }
+  .db-search input:focus{outline:none;border-color:var(--sec-red)}
+  .db-list{max-height:560px;overflow-y:auto}
+  .deg-head{
+    padding:5px 12px;background:#232025;color:var(--sec-red-bright);
+    font-size:11px;letter-spacing:2px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:2;
+  }
+  .crime-row{
+    display:flex;align-items:center;gap:8px;
+    padding:7px 12px;cursor:pointer;border-bottom:1px solid #2b2c31;
+  }
+  .crime-row:hover{background:var(--panel-raised)}
+  .crime-row .tier{
+    flex:0 0 auto;width:26px;text-align:center;font-size:10px;padding:2px 0;
+    border:1px solid var(--line);color:var(--text-dim);
+  }
+  .tier.t3,.tier.t4{border-color:var(--gold);color:var(--gold)}
+  .tier.t5{border-color:var(--sec-red-bright);color:var(--sec-red-bright)}
+  .crime-row .cname{flex:1;font-size:13px}
+  .crime-row .crange{flex:0 0 auto;font-size:11px;color:var(--text-dim)}
+  .crime-row .crange.special{color:var(--sec-red-bright)}
+
+  /* ---------- charge sheet ---------- */
+  .right-col{display:flex;flex-direction:column;gap:12px}
+  .charges-body{min-height:70px}
+  .empty-note{padding:16px 14px;color:var(--text-dim);font-size:12px}
+  .charge-row{
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:8px 12px;border-bottom:1px solid #2b2c31;
+  }
+  .charge-row .tier{width:26px;text-align:center;font-size:10px;padding:2px 0;border:1px solid var(--line);color:var(--text-dim)}
+  .charge-row .cname{flex:1;min-width:140px;font-size:13px}
+  .charge-row .crange{font-size:11px;color:var(--text-dim)}
+  .charge-row select{
+    background:var(--bg-deep);color:var(--text);border:1px solid var(--line);
+    font-family:var(--mono);font-size:12px;padding:3px 6px;
+  }
+  .charge-row .mult{font-size:11px;color:var(--gold);width:44px;text-align:right}
+  .rm-btn{
+    background:none;border:1px solid var(--line);color:var(--text-dim);
+    font-family:var(--mono);cursor:pointer;padding:2px 8px;font-size:12px;
+  }
+  .rm-btn:hover{border-color:var(--sec-red-bright);color:var(--sec-red-bright)}
+  .undo-toast{
+    display:none;align-items:center;justify-content:space-between;gap:10px;
+    padding:8px 12px;background:var(--panel-raised);border-top:1px solid var(--line);
+    font-size:12px;color:var(--text-dim);
+  }
+  .undo-toast.on{display:flex}
+  .undo-toast button{
+    background:none;border:1px solid var(--gold);color:var(--gold);
+    font-family:var(--mono);font-size:11px;letter-spacing:1px;
+    padding:3px 10px;cursor:pointer;
+  }
+  .undo-toast button:hover{background:var(--gold);color:var(--bg-deep)}
+  .info{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:14px;height:14px;margin-left:5px;vertical-align:1px;
+    border:1px solid var(--text-dim);border-radius:50%;
+    font-size:9px;font-style:italic;color:var(--text-dim);
+    cursor:help;position:relative;
+  }
+  .info:hover,.info:focus{border-color:var(--gold);color:var(--gold)}
+  .info .tip{
+    position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
+    width:260px;padding:8px 10px;z-index:10;
+    background:var(--bg-deep);border:1px solid var(--gold);color:var(--text);
+    font-size:11px;font-style:normal;line-height:1.5;text-align:left;
+    opacity:0;visibility:hidden;pointer-events:none;
+    transition:opacity .15s, visibility 0s linear .15s;
+  }
+  .info:hover .tip,.info:focus .tip{
+    opacity:1;visibility:visible;
+    transition-delay:.5s;
+  }
+
+  /* ---------- verdict ---------- */
+  .verdict-body{padding:14px}
+  .range-line{display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim);margin-bottom:4px}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:2px;background:var(--line);outline:none;margin:14px 0 14px;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:3px;height:16px;background:var(--sec-red-bright);cursor:pointer;border:none;border-radius:1px;
+  }
+  input[type=range]::-moz-range-thumb{width:3px;height:16px;background:var(--sec-red-bright);cursor:pointer;border:none;border-radius:1px}
+  .ticks{position:relative;height:14px;margin:-8px 2px 14px;font-size:10px;letter-spacing:1px;color:var(--text-dim)}
+  .ticks span{position:absolute;top:0;white-space:nowrap}
+  .ticks span:first-child{left:0}
+  .ticks span:last-child{right:0}
+  .ticks span:not(:first-child):not(:last-child){transform:translateX(-50%)}
+  .readout{
+    display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+    border:1px solid var(--line);background:var(--bg-deep);
+    padding:12px 16px;
+  }
+  .readout .label{font-size:11px;letter-spacing:2px;color:var(--text-dim)}
+  .readout .time{font-size:38px;color:var(--sec-red-bright);letter-spacing:3px;font-weight:700;text-shadow:0 0 12px rgba(225,75,85,.35)}
+  .readout .minmax{font-size:12px;color:var(--text-dim)}
+  .served-row{
+    display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--text-dim);
+  }
+  .served-row .label{font-size:11px;letter-spacing:2px}
+  .served-row input{
+    width:64px;background:var(--bg-deep);border:1px solid var(--line);color:var(--text);
+    font-family:var(--mono);font-size:13px;padding:4px 6px;
+  }
+  .served-row input:focus{outline:none;border-color:var(--sec-red)}
+  .stepper{position:relative;display:inline-flex}
+  .stepper input[type=number]{-moz-appearance:textfield;padding-right:18px;width:64px}
+  .stepper input::-webkit-outer-spin-button,
+  .stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .stepper-btns{
+    position:absolute;right:1px;top:1px;bottom:1px;width:16px;
+    display:flex;flex-direction:column;border-left:1px solid var(--line);
+  }
+  .stepper-btns button{
+    flex:1;padding:0;background:var(--panel-raised);border:none;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .stepper-btns button:hover{background:#3a3130}
+  .stepper-btns button::before{content:"";width:0;height:0;border-left:3px solid transparent;border-right:3px solid transparent}
+  .step-up::before{border-bottom:4px solid var(--sec-red-bright)}
+  .step-down::before{border-top:4px solid var(--sec-red-bright)}
+  .served-out{color:var(--gold);font-size:12px}
+  .perm-banner{
+    display:none;margin-top:10px;padding:10px 14px;
+    border:1px solid var(--sec-red-bright);background:#33191c;color:var(--sec-red-bright);
+    font-size:13px;letter-spacing:1px;
+  }
+  .perm-banner.on{display:block;animation:blink 1.6s steps(2,start) infinite}
+  @keyframes blink{0%{border-color:var(--sec-red-bright)}50%{border-color:#5a2a2e}}
+  .special-banner{
+    display:none;margin-top:10px;padding:12px 14px;
+    border:1px solid var(--sec-magenta);background:#2c1620;color:var(--text);font-size:13px;
+  }
+  .special-banner.on{display:block}
+  .special-banner b{color:var(--sec-magenta);letter-spacing:1px}
+
+  /* ---------- lower grid: chart + obligations ---------- */
+  .lower{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:700px){.lower{grid-template-columns:1fr}}
+  .chart-body{padding:12px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  #pie{flex:0 0 auto}
+  .legend{flex:1;min-width:150px;font-size:11px}
+  .legend div{display:flex;align-items:center;gap:7px;margin:3px 0;color:var(--text-dim)}
+  .legend .sw{width:10px;height:10px;flex:0 0 auto}
+  .obl-body{padding:12px 14px;font-size:12px}
+  .obl-body ul{list-style:none}
+  .obl-body li{padding:4px 0;border-bottom:1px dashed #33343a;color:var(--text-dim)}
+  .obl-body li:last-child{border-bottom:none}
+  .obl-body li::before{content:"▸ ";color:var(--sec-red-bright)}
+  .obl-body li.gold{color:var(--gold)}
+  .obl-body li.gold::before{color:var(--gold)}
+  .obl-body li.red{color:var(--sec-red-bright)}
+  .obl-body li.red::before{color:var(--sec-red-bright)}
+  .footnote{margin-top:10px;color:var(--text-dim);font-size:10.5px;line-height:1.5}
+  .tool-footer{
+    margin-top:14px;padding:8px 4px 2px;text-align:center;
+    font-size:10.5px;letter-spacing:.5px;color:var(--text-dim);
+    border-top:1px solid var(--line);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div>
+      <h1>WARDEN'S SENTENCING TOOL</h1>
+      <div class="sub">NT SECURITY SUBSYSTEM // BRIG SENTENCING CONSOLE</div>
+    </div>
+  </div>
+  <div class="alert-select">
+    <span>ALERT LEVEL</span>
+    <button class="alert-btn active" data-alert="green">GREEN</button>
+    <button class="alert-btn" data-alert="blue">BLUE</button>
+    <button class="alert-btn" data-alert="red">RED</button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- LEFT: crime database -->
+  <section class="panel">
+    <div class="panel-head"><span>CRIME DATABASE</span><span id="dbCount"></span></div>
+    <div class="db-search"><input id="search" type="text" placeholder="search crimes…" autocomplete="off"></div>
+    <div class="db-list" id="dbList"></div>
+  </section>
+
+  <!-- RIGHT -->
+  <div class="right-col">
+
+    <section class="panel">
+      <div class="panel-head"><span>CHARGE SHEET</span><button class="rm-btn" id="clearAll">CLEAR</button></div>
+      <div class="charges-body" id="charges">
+        <div class="empty-note">No charges filed. Select crimes from the database.</div>
+      </div>
+      <div class="undo-toast" id="undoToast">
+        <span id="undoMsg">Charge sheet cleared.</span>
+        <button id="undoBtn">UNDO</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><span>SENTENCE</span></div>
+      <div class="verdict-body">
+        <div id="sliderWrap">
+          <div class="range-line"><span id="rMin">MIN 0:00</span><span>SEVERITY</span><span id="rMax">MAX 0:00</span></div>
+          <input type="range" id="severity" min="0" max="4" step="1" value="0">
+          <div class="ticks"><span>MIN</span><span style="left:25%">25%</span><span style="left:50%">50%</span><span style="left:75%">75%</span><span>MAX</span></div>
+        </div>
+        <div class="readout">
+          <span class="label">SENTENCE</span>
+          <span class="time" id="timeOut">0:00</span>
+          <span class="minmax" id="rangeOut"></span>
+        </div>
+        <div class="served-row">
+          <span class="label">TIME SERVED</span>
+          <div class="stepper">
+            <input type="number" id="served" min="0" step="1" value="0">
+            <div class="stepper-btns">
+              <button type="button" class="step-up" aria-label="increase"></button>
+              <button type="button" class="step-down" aria-label="decrease"></button>
+            </div>
+          </div>
+          min
+          <span class="served-out" id="servedOut"></span>
+        </div>
+        <div class="perm-banner" id="permBanner">⚠ SENTENCE EXCEEDS 20:00: PERMANENT CONFINEMENT HIGHLY RECOMMENDED (SPACE LAW)</div>
+        <div class="special-banner" id="specialBanner"></div>
+      </div>
+    </section>
+
+    <div class="lower">
+      <section class="panel">
+        <div class="panel-head"><span>CHARGE BREAKDOWN</span></div>
+        <div class="chart-body">
+          <canvas id="pie" width="170" height="170"></canvas>
+          <div class="legend" id="legend"><div style="color:var(--text-dim)">(none)</div></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><span>PROCEDURAL OBLIGATIONS</span></div>
+        <div class="obl-body">
+          <ul id="oblList"></ul>
+          <div class="footnote">
+            Repeat-offense multipliers apply to repeats of the <em>same</em> crime only: 2nd ×1.5, 3rd ×2.5, further offenses stack cumulatively (guidebook example: ×10). Use common sense; maximum time is not always warranted.
+          </div>
+        </div>
+      </section>
+    </div>
+
+  </div>
+</div>
+
+<footer class="tool-footer">Created by northern_wings. Built with AI assistance, sourced from in-game Funky Station Space Law.</footer>
+
+<script>
+/* ------------ data ------------ */
+// times in seconds; min:0 + warn:true renders as "Warning"
+// special outcomes: PERM, PERM_PENDING, DEMOTION, EXECUTION
+const CRIMES = [
+  {id:"disturbance", name:"Disturbance",                             deg:1, min:0,   max:120, warn:true,
+   desc:"To cause a public disturbance."},
+  {id:"pettytheft",  name:"Petty Theft",                             deg:1, min:60,  max:180,
+   desc:"To take non-vital or inexpensive property of another individual, organization, or common property, without consent."},
+  {id:"substances",  name:"Possession/Use of Illegal Substances",    deg:1, min:0,   max:180, warn:true,
+   desc:"To make, hold, or abuse restricted drugs or chemicals."},
+  {id:"trespass",    name:"Trespass",                                deg:1, min:0,   max:120, warn:true,
+   desc:"To enter a non-secured area without permission."},
+  {id:"vandalism",   name:"Vandalism",                               deg:1, min:0,   max:120, warn:true,
+   desc:"To intentionally deface or illegally alter public or private property."},
+
+  {id:"animal",      name:"Animal Cruelty",                          deg:2, min:120, max:300,
+   desc:"To inflict unnecessary suffering or harm on a non-sapient being with malicious intent."},
+  {id:"property",    name:"Damage/Destruction of Property",          deg:2, min:120, max:240,
+   desc:"To intentionally damage or destroy public or private property or equipment."},
+  {id:"endanger",    name:"Endangerment",                            deg:2, min:120, max:240,
+   desc:"To recklessly put yourself or others in danger through direct intentional or negligent actions."},
+  {id:"comply",      name:"Failure to Comply",                       deg:2, min:0,   max:120, warn:true,
+   desc:"To resist reasonable orders given by an authority. This extends to warrants and authorized searches."},
+  {id:"gear",        name:"Possession of Restricted Gear",           deg:2, min:0,   max:300, warn:true,
+   desc:"To hold or use non-lethal items or objects that are restricted or illegal."},
+  {id:"rioting",     name:"Rioting",                                 deg:2, min:120, max:240,
+   desc:"To take part in a large group of personnel creating an unlawful public disturbance."},
+  {id:"fraud",       name:"Fraud",                                   deg:2, min:120, max:300,
+   desc:"To intentionally use deception or trickery for personal gain or to harm."},
+
+  {id:"assault",     name:"Assault",                                 deg:3, min:0,   max:180, warn:true,
+   desc:"To threaten to or attempt to use physical force against someone with the intent to cause fear of harm."},
+  {id:"battery",     name:"Battery",                                 deg:3, min:60,  max:180,
+   desc:"The actual act of physical force used against someone without consent."},
+  {id:"barrest",     name:"Breach of Arrest",                        deg:3, min:120, max:240,
+   desc:"To intentionally resist and flee arrest or detainment by an authorized authority."},
+  {id:"gtheft",      name:"Grand Theft",                             deg:3, min:180, max:360,
+   desc:"To take critical or unreplaceable property of another individual or organization without consent."},
+
+  {id:"manslaughter",name:"Manslaughter",                            deg:4, min:240, max:600,
+   desc:"To incidentally kill a sapient being without intent."},
+  {id:"massdest",    name:"Mass Destruction",                        deg:4, min:600, max:900,
+   desc:"To cause massive damage to an area or major station system."},
+  {id:"weaponry",    name:"Possession of Restricted Weaponry",       deg:4, min:180, max:360,
+   desc:"To hold or use a weapon that is unlawful or contraband."},
+  {id:"sectrespass", name:"Secure Trespass",                         deg:4, min:180, max:480,
+   desc:"To enter a secured area without permission."},
+  {id:"bcustody",    name:"Breach of Custody",                       deg:4, min:120, max:300,
+   desc:"To break out of a cell or custody with the intention of escaping."},
+  {id:"kidnap",      name:"Kidnapping",                              deg:4, min:240, max:600,
+   desc:"To unlawfully restrain, transport, control or confine a sapient being against that individual's will."},
+  {id:"murder",      name:"Murder",                                  deg:4, min:240, max:600,
+   desc:"To kill a sapient being with malicious intent."},
+  {id:"gfraud",      name:"Grand Fraud",                             deg:4, min:300, max:900,
+   desc:"To intentionally use deception or trickery for personal gain or to harm, involving fabrication at a Command, Central Command, or other serious level."},
+
+  {id:"massmurder",  name:"Mass Murder",                             deg:5, sMin:"PERM",         sMax:"PERM",
+   desc:"To kill three or more sapient beings with malicious intent."},
+  {id:"capneg",      name:"Capital Negligence",                      deg:5, sMin:"DEMOTION",     sMax:"PERM",
+   desc:"To recklessly put yourself or others in mortal danger, either through direct action, or failure to act as a command member."},
+  {id:"revival",     name:"Prevention of Revival",                   deg:5, min:900,             sMax:"PERM",
+   desc:"To render a body unresurrectable."},
+  {id:"shielding",   name:"Refusal of Mental Shielding",             deg:5, sMin:"PERM_PENDING", sMax:"PERM",
+   desc:"To refuse to comply with a reasonable MindShielding procedure."},
+  {id:"terrorism",   name:"Terrorism",                               deg:5, sMin:"PERM",         sMax:"EXECUTION",
+   desc:"To engage in maliciously destructive actions which threaten to destroy, or successfully destroy a vessel or habitat."}
+];
+
+const DEG_LABEL = {1:"I DEGREE",2:"II DEGREE",3:"III DEGREE",4:"IV DEGREE",5:"V DEGREE"};
+const ROMAN = {1:"I",2:"II",3:"III",4:"IV",5:"V"};
+const MULTS = [1,1.5,2.5,10];
+const MULT_LABEL = ["1st offense","2nd offense (×1.5)","3rd offense (×2.5)","4th+ offense (×10)"];
+const SPECIAL_TEXT = {
+  PERM:"PERMANENT CONFINEMENT",
+  PERM_PENDING:"PERMANENT, pending acceptance of shielding",
+  DEMOTION:"DEMOTION",
+  EXECUTION:"EXECUTION"
+};
+const PIE_COLORS = ["#e14b55","#d8a53a","#d9366b","#4d8fd1","#4caf6d","#b8323c","#8b8e96","#c77e2f","#7a4fd1","#3fa8a0"];
+
+/* ------------ state ------------ */
+let charges = [];   // {uid, crimeId, offense}
+let alertLevel = "green";
+let uidSeq = 0;
+
+/* ------------ helpers ------------ */
+const $ = s => document.querySelector(s);
+const crimeById = id => CRIMES.find(c => c.id === id);
+const fmt = s => Math.floor(s/60) + ":" + String(Math.round(s%60)).padStart(2,"0");
+const rangeText = c => {
+  const lo = c.sMin ? SPECIAL_TEXT[c.sMin].split(" ")[0] : (c.warn ? "Warning" : fmt(c.min));
+  const hi = c.sMax ? SPECIAL_TEXT[c.sMax].split(" ")[0] : fmt(c.max);
+  return lo + " – " + hi;
+};
+
+/* ------------ crime database render ------------ */
+function renderDB(){
+  const q = $("#search").value.trim().toLowerCase();
+  const list = $("#dbList");
+  list.innerHTML = "";
+  let shown = 0;
+  for(let d=1; d<=5; d++){
+    const group = CRIMES.filter(c => c.deg===d && c.name.toLowerCase().includes(q));
+    if(!group.length) continue;
+    const head = document.createElement("div");
+    head.className = "deg-head";
+    head.textContent = DEG_LABEL[d];
+    list.appendChild(head);
+    for(const c of group){
+      shown++;
+      const row = document.createElement("div");
+      row.className = "crime-row";
+      row.innerHTML =
+        `<span class="tier t${c.deg}">${ROMAN[c.deg]}</span>
+         <span class="cname">${c.name}</span>
+         <span class="crange ${c.deg===5?"special":""}">${rangeText(c)}</span>`;
+      row.addEventListener("click", ()=> addCharge(c.id));
+      list.appendChild(row);
+    }
+  }
+  $("#dbCount").textContent = shown + " ENTRIES";
+  if(!shown) list.innerHTML = '<div class="empty-note">No matches.</div>';
+}
+
+/* ------------ charge sheet ------------ */
+function addCharge(crimeId){
+  charges.push({uid:++uidSeq, crimeId, offense:0});
+  renderCharges(); recompute();
+}
+function removeCharge(uid){
+  charges = charges.filter(c => c.uid !== uid);
+  renderCharges(); recompute();
+}
+function renderCharges(){
+  const box = $("#charges");
+  if(!charges.length){
+    box.innerHTML = '<div class="empty-note">No charges filed. Select crimes from the database.</div>';
+    return;
+  }
+  box.innerHTML = "";
+  for(const ch of charges){
+    const c = crimeById(ch.crimeId);
+    const row = document.createElement("div");
+    row.className = "charge-row";
+    const sel = document.createElement("select");
+    MULT_LABEL.forEach((l,i)=>{
+      const o = document.createElement("option");
+      o.value = i; o.textContent = l;
+      if(i===ch.offense) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", ()=>{ ch.offense = +sel.value; recompute(); });
+    row.innerHTML =
+      `<span class="tier t${c.deg}">${ROMAN[c.deg]}</span>
+       <span class="cname">${c.name}
+         <span class="info" tabindex="0">i<span class="tip">${c.desc}</span></span>
+       </span>
+       <span class="crange">${rangeText(c)}</span>`;
+    row.appendChild(sel);
+    const rm = document.createElement("button");
+    rm.className = "rm-btn"; rm.textContent = "✕";
+    rm.addEventListener("click", ()=> removeCharge(ch.uid));
+    row.appendChild(rm);
+    box.appendChild(row);
+  }
+}
+let undoSnapshot = null, undoTimer = null;
+$("#clearAll").addEventListener("click", ()=>{
+  if(!charges.length) return;               // nothing to clear, nothing to undo
+  undoSnapshot = charges.map(c => ({...c}));
+  charges = [];
+  renderCharges(); recompute();
+  showUndoToast();
+});
+function showUndoToast(){
+  clearTimeout(undoTimer);
+  $("#undoToast").classList.add("on");
+  undoTimer = setTimeout(hideUndoToast, 6000);
+}
+function hideUndoToast(){
+  $("#undoToast").classList.remove("on");
+  undoSnapshot = null;
+}
+$("#undoBtn").addEventListener("click", ()=>{
+  if(!undoSnapshot) return;
+  charges = undoSnapshot;
+  undoSnapshot = null;
+  clearTimeout(undoTimer);
+  hideUndoToast();
+  renderCharges(); recompute();
+});
+
+/* ------------ computation ------------ */
+// all sentences resolve to whole minutes:
+// first offense rounds DOWN, any repeat offense rounds UP
+function roundToMinute(sec, isRepeat){
+  return (isRepeat ? Math.ceil(sec/60) : Math.floor(sec/60)) * 60;
+}
+function recompute(){
+  const numeric = [], specials = [];
+  let permMaxOnly = false;
+  for(const ch of charges){
+    const c = crimeById(ch.crimeId);
+    const m = MULTS[ch.offense];
+    const rep = ch.offense > 0;
+    if(c.sMin){ specials.push({c, ch}); continue; }
+    if(c.sMax) permMaxOnly = true;                 // numeric min, permanent max
+    numeric.push({
+      c, ch, rep,
+      min: roundToMinute(c.min*m, rep),
+      max: roundToMinute((c.max ?? c.min)*m, rep)
+    });
+  }
+
+  const sumMin = numeric.reduce((a,x)=>a+x.min,0);
+  const sumMax = numeric.reduce((a,x)=>a+x.max,0);
+  const t = +$("#severity").value/4;               // snaps: 0, .25, .5, .75, 1
+  // each charge's contribution at this severity, resolved to whole minutes
+  const contribs = numeric.map(x => roundToMinute(x.min + t*(x.max-x.min), x.rep));
+  const total = contribs.reduce((a,v)=>a+v,0);
+
+  // special mode: any charge with a non-numeric minimum overrides the clock
+  const sb = $("#specialBanner");
+  if(specials.length){
+    $("#sliderWrap").style.display = "none";
+    $("#timeOut").textContent = "N/A";
+    // highest-priority outcome
+    const hasExec = specials.some(s => s.c.sMax === "EXECUTION");
+    const mins = specials.map(s => SPECIAL_TEXT[s.c.sMin]);
+    let txt = "<b>SPECIAL SENTENCE</b><br>" +
+      specials.map(s => `${s.c.name}: ${SPECIAL_TEXT[s.c.sMin]} → ${SPECIAL_TEXT[s.c.sMax]}`).join("<br>");
+    if(numeric.length) txt += `<br>Timed charges (${fmt(sumMin)}–${fmt(sumMax)}) are subsumed by the above.`;
+    if(hasExec) txt += "<br>Executions require a trial with a presiding judge, or CentComm approval after formal contact.";
+    sb.innerHTML = txt; sb.classList.add("on");
+    $("#permBanner").classList.remove("on");
+    $("#rangeOut").textContent = "";
+    $("#servedOut").textContent = "";
+    drawPie([]); renderLegend([]);
+    renderObligations();
+    return;
+  }
+  sb.classList.remove("on");
+  $("#sliderWrap").style.display = "";
+
+  $("#rMin").textContent = "MIN " + (sumMin===0 ? "WARNING" : fmt(sumMin));
+  $("#rMax").textContent = "MAX " + (permMaxOnly ? "PERMANENT" : fmt(sumMax));
+  $("#timeOut").textContent = !charges.length ? "0:00" : (total===0 ? "WARNING" : fmt(total));
+  $("#rangeOut").textContent = charges.length ? `range ${sumMin===0?"Warning":fmt(sumMin)} – ${permMaxOnly ? "PERM" : fmt(sumMax)}` : "";
+
+  const servedMin = Math.max(0, +$("#served").value || 0);
+  const servedSec = servedMin*60;
+  const remaining = Math.max(0, total - servedSec);
+  const so = $("#servedOut");
+  if(!charges.length || total===0){
+    so.textContent = "";
+  } else if(servedSec <= 0){
+    so.textContent = "";
+  } else if(remaining <= 0){
+    so.textContent = "TIME SERVED: release";
+  } else {
+    so.textContent = `${fmt(remaining)} remaining`;
+  }
+
+  // strict 20:00 rule
+  $("#permBanner").classList.toggle("on", total > 1200);
+
+  // pie of contributions at current severity (same whole-minute values as the total)
+  const parts = numeric.map((x,i)=>({
+    label: x.c.name,
+    value: contribs[i],
+    color: PIE_COLORS[i % PIE_COLORS.length]
+  })).filter(p => p.value > 0);
+  drawPie(parts); renderLegend(parts);
+  renderObligations();
+}
+$("#severity").addEventListener("input", recompute);
+$("#served").addEventListener("input", recompute);
+$(".step-up").addEventListener("click", ()=>{
+  $("#served").value = Math.max(0, (+$("#served").value || 0) + 1);
+  recompute();
+});
+$(".step-down").addEventListener("click", ()=>{
+  $("#served").value = Math.max(0, (+$("#served").value || 0) - 1);
+  recompute();
+});
+
+/* ------------ pie chart ------------ */
+function drawPie(parts){
+  const cv = $("#pie"), ctx = cv.getContext("2d");
+  ctx.clearRect(0,0,cv.width,cv.height);
+  const cx = cv.width/2, cy = cv.height/2, r = cv.width/2 - 6;
+  const total = parts.reduce((a,p)=>a+p.value,0);
+  if(!total){
+    ctx.strokeStyle = "#3a3c44"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
+    return;
+  }
+  let a = -Math.PI/2;
+  for(const p of parts){
+    const slice = (p.value/total)*Math.PI*2;
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,r,a,a+slice);
+    ctx.closePath();
+    ctx.fillStyle = p.color; ctx.fill();
+    ctx.strokeStyle = "#1c1d21"; ctx.lineWidth = 2; ctx.stroke();
+    a += slice;
+  }
+}
+function renderLegend(parts){
+  const lg = $("#legend");
+  if(!parts.length){ lg.innerHTML = '<div>(none)</div>'; return; }
+  const total = parts.reduce((a,p)=>a+p.value,0);
+  lg.innerHTML = parts.map(p =>
+    `<div><span class="sw" style="background:${p.color}"></span>${p.label}: ${fmt(p.value)} (${Math.round(p.value/total*100)}%)</div>`
+  ).join("");
+}
+
+/* ------------ alert level + obligations ------------ */
+document.querySelectorAll(".alert-btn").forEach(b=>{
+  b.addEventListener("click", ()=>{
+    document.querySelectorAll(".alert-btn").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
+    alertLevel = b.dataset.alert;
+    renderObligations();
+  });
+});
+function renderObligations(){
+  const hasT3 = charges.some(ch => crimeById(ch.crimeId).deg >= 3);
+  const items = [];
+  items.push({text:"Conduct a thorough search of the prisoner's belongings (pockets, PDA, coat, suit storage)."});
+  items.push({text:"Read every prisoner the crimes they are sentenced to."});
+  items.push({text:"Ask the prisoner to enter a plea: guilty or not guilty."});
+  if(alertLevel === "red"){
+    items.push({text:"Trial is NOT required during states of emergency.", cls:"red"});
+    items.push({text:"Confidential legal-rep meetings must still be permitted; brig time pauses during them."});
+    items.push({text:"Arrests may be carried out freely."});
+  } else {
+    if(hasT3) items.push({text:"If contested, trial must be permitted per Legal SOP."});
+    items.push({text:"Confidential legal-rep meetings must be permitted at any time; brig time pauses during them."});
+    if(alertLevel === "green") items.push({text:"No arrests by the Warden while Security Officers are active."});
+  }
+  const ul = $("#oblList");
+  ul.innerHTML = items.map(i=>`<li class="${i.cls||""}">${i.text}</li>`).join("");
+  if(hasT3){
+    ul.innerHTML += `<li class="gold">Tier III+ charge present: suspect must be permitted legal representation during interrogation.</li>`;
+  }
+}
+
+/* ------------ init ------------ */
+$("#search").addEventListener("input", renderDB);
+renderDB(); renderCharges(); recompute();
+</script>
+</body>
+</html>
